@@ -769,4 +769,138 @@ run(function()
 		Tooltip = 'Allows you to instantly complete ProximityPrompt actions'
 	})
 end)
-	
+
+local VehicleFly
+
+local VehicleFly
+run(function()
+	local Options = {TPTiming = tick()}  -- kept for compatibility
+	local Keys
+	local VerticalValue
+	local CustomProperties
+	local w, s, a, d, up, down = 0, 0, 0, 0, 0, 0
+
+	VehicleFly = vape.Categories.Blatant:CreateModule({
+		Name = 'VehicleFly',
+		Function = function(callback)
+			frictionTable.Fly = callback and CustomProperties.Enabled or nil
+			updateVelocity()
+
+			if callback then
+				VehicleFly:Clean(runService.PreSimulation:Connect(function(dt)
+					if entitylib.isAlive then
+						local root = entitylib.character.RootPart
+
+						-- Horizontal movement (direct input)
+						local moveDirection = Vector3.new(a + d, 0, w + s)
+						if moveDirection.Magnitude > 0 then
+							moveDirection = moveDirection.Unit
+						end
+						local horizontalSpeed = Options.Value.Value
+						local targetVel = moveDirection * horizontalSpeed
+						root.Velocity = Vector3.new(targetVel.X, root.Velocity.Y, targetVel.Z)
+
+						-- Vertical movement with a small upward bias
+						local verticalInput = up + down
+						local verticalSpeed = verticalInput * VerticalValue.Value
+						root.Velocity = Vector3.new(root.Velocity.X, 2.25 + verticalSpeed, root.Velocity.Z)
+					end
+				end))
+
+				-- Key bindings
+				w, s, a, d = 0, 0, 0, 0
+				up, down = 0, 0
+				for _, event in {'InputBegan', 'InputEnded'} do
+					VehicleFly:Clean(inputService[event]:Connect(function(input)
+						if not inputService:GetFocusedTextBox() then
+							local divided = Keys.Value:split('/')
+							if input.KeyCode == Enum.KeyCode.W then
+								w = (event == 'InputBegan') and -1 or 0
+							elseif input.KeyCode == Enum.KeyCode.S then
+								s = (event == 'InputBegan') and 1 or 0
+							elseif input.KeyCode == Enum.KeyCode.A then
+								a = (event == 'InputBegan') and -1 or 0
+							elseif input.KeyCode == Enum.KeyCode.D then
+								d = (event == 'InputBegan') and 1 or 0
+							elseif input.KeyCode == Enum.KeyCode[divided[1]] then
+								up = (event == 'InputBegan') and 1 or 0
+							elseif input.KeyCode == Enum.KeyCode[divided[2]] then
+								down = (event == 'InputBegan') and -1 or 0
+							end
+						end
+					end))
+				end
+
+				-- Touch support (optional)
+				if inputService.TouchEnabled then
+					pcall(function()
+						local jumpButton = lplr.PlayerGui.TouchGui.TouchControlFrame.JumpButton
+						VehicleFly:Clean(jumpButton:GetPropertyChangedSignal('ImageRectOffset'):Connect(function()
+							up = jumpButton.ImageRectOffset.X == 146 and 1 or 0
+						end))
+					end)
+				end
+			else
+				-- Cleanup (nothing needed for velocity fly)
+			end
+		end,
+		ExtraText = function()
+			return 'Velocity'
+		end,
+		Tooltip = 'Makes you go zoom with pure velocity control.'
+	})
+
+	-- Speed slider
+	Options.Value = VehicleFly:CreateSlider({
+		Name = 'Speed',
+		Min = 1,
+		Max = 300,
+		Default = 50,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+
+	-- Vertical Speed
+	VerticalValue = VehicleFly:CreateSlider({
+		Name = 'Vertical Speed',
+		Min = 1,
+		Max = 300,
+		Default = 50,
+		Suffix = function(val)
+			return val == 1 and 'stud' or 'studs'
+		end
+	})
+
+	-- Keys dropdown – now includes left/right control, shift, alt, and more
+	Keys = VehicleFly:CreateDropdown({
+		Name = 'Keys',
+		List = {
+			'Space/LeftControl',
+			'Space/RightControl',
+			'LeftControl/RightControl',
+			'LeftShift/RightShift',
+			'LeftAlt/RightAlt',
+			'Space/LeftShift',
+			'Space/RightShift',
+			'E/Q',
+			'Space/Q',
+			'ButtonA/ButtonL2',
+			'LeftControl/LeftShift',
+			'RightControl/RightShift'
+		},
+		Tooltip = 'The key combination for going up & down (first key = up, second = down)'
+	})
+
+	-- Custom Properties toggle
+	CustomProperties = VehicleFly:CreateToggle({
+		Name = 'Custom Properties',
+		Function = function()
+			if VehicleFly.Enabled then
+				VehicleFly:Toggle()
+				VehicleFly:Toggle()
+			end
+		end,
+		Default = true
+	})
+end)

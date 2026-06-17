@@ -546,8 +546,70 @@ end)
 	
 run(function()
 	local AutoArrest
-	local TeleportToTarget = true  -- you can turn this into a toggle later
+	local TeleportToTarget = true
+	local SpawnVehicle = true   -- toggle for auto‑spawning
 
+	-- Helper: get the nearest owned vehicle (from FarmHub's logic)
+	local function GetNearestOwnedVehicle()
+		local nearest, dist = nil, math.huge
+		local owned = { "Jeep", "Camaro", "Mustang", "Challenger", "Tesla" } -- add your owned vehicle names
+
+		for _, car in ipairs(workspace.Vehicles:GetChildren()) do
+			if car.PrimaryPart and table.find(owned, car.Name) then
+				local d = (car.PrimaryPart.Position - entitylib.character.RootPart.Position).Magnitude
+				if d < dist then
+					dist = d
+					nearest = car
+				end
+			end
+		end
+		return nearest
+	end
+
+	-- Helper: enter a vehicle (using game's interaction)
+	local function EnterVehicle(vehicle)
+		if not vehicle then return false end
+		local seat = vehicle:FindFirstChild("Seat")
+		if not seat then return false end
+
+		-- Trigger the "GetIn" action via CircleAction specs
+		for _, spec in ipairs(jb.CircleAction.Specs) do
+			if spec.Part == seat and spec.Name == "GetIn" then
+				spec:Callback(true)
+				task.wait(0.5)
+				return true
+			end
+		end
+		return false
+	end
+
+	-- Helper: exit current vehicle (using FarmHub's ExitVehicle)
+	local function ExitVehicle()
+		local model = GetVehicleModel and GetVehicleModel()
+		if model then
+			jb:FireServer("GetOut")
+			task.wait(0.3)
+		end
+	end
+
+	-- Helper: small teleport (smooth, no lagback)
+	local function SmallTP(cframe)
+		local root = entitylib.character.RootPart
+		local bv = Instance.new("BodyVelocity", root)
+		bv.P = 3000
+		bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+
+		local target = cframe.Position
+		repeat
+			bv.Velocity = (target - root.Position).Unit * 50
+			task.wait(0.01)
+		until (root.Position - target).Magnitude < 3
+
+		bv:Destroy()
+		root.CFrame = cframe
+	end
+
+	-- Main module
 	AutoArrest = vape.Categories.Blatant:CreateModule({
 		Name = 'AutoArrest',
 		Function = function(callback)
@@ -567,39 +629,38 @@ run(function()
 							if ent.Player and isIllegal(ent) then
 								local vehicle = ent.Humanoid.Sit and getVehicle(ent) or nil
 
-								-- If target is in a vehicle, eject them first
+								-- Eject target from vehicle
 								if vehicle then
 									jb:FireServer('Eject', vehicle)
 									task.wait(0.3)
 								end
 
-								-- Teleport to the target if enabled and we're not already close enough
-								if TeleportToTarget then
-									local targetPos = ent.RootPart.Position
-									local distance = (localPosition - targetPos).Magnitude
+								local targetPos = ent.RootPart.Position
+								local distance = (localPosition - targetPos).Magnitude
 
-									if distance > 18.4 then
-										-- Use the FarmHub teleport functions (assumed to be available)
-										-- If you're in a vehicle, exit it first
-										if GetVehicleModel and GetVehicleModel() then
-											ExitVehicle()   -- from FarmHub
-										end
-
-										-- Use SmallTP or BigTP (prefer SmallTP for close distances)
-										if SmallTP then
-											SmallTP(CFrame.new(targetPos))
-										else
-											-- fallback: simple CFrame teleport
-											if Character and Root then
-												Root.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))
-											end
-										end
-										task.wait(0.5)  -- let the server catch up
+								-- Teleport to target if enabled & far
+								if TeleportToTarget and distance > 18.4 then
+									-- Exit current vehicle if we're in one
+									if GetVehicleModel and GetVehicleModel() then
+										ExitVehicle()
 									end
+
+									-- If we still need a vehicle, spawn/enter one
+									if SpawnVehicle and not GetVehicleModel() then
+										local car = GetNearestOwnedVehicle()
+										if car then
+											EnterVehicle(car)
+											task.wait(0.5)
+										end
+									end
+
+									-- Teleport to target (using SmallTP)
+									SmallTP(CFrame.new(targetPos))
+									task.wait(0.5) -- let server sync
 								end
 
-								-- Now attempt arrest (only if within range)
-								if not isArrested(ent.Player.Name) and (localPosition - ent.RootPart.Position).Magnitude < 18.4 then
+								-- Arrest if within range
+								if not isArrested(ent.Player.Name) and (entitylib.character.Humanoid.HumanoidUnloadServerPosition.Value - ent.RootPart.Position).Magnitude < 18.4 then
 									jb:FireServer('Arrest', ent.Player.Name)
 									task.wait(0.6)
 								end
@@ -611,20 +672,22 @@ run(function()
 				until not AutoArrest.Enabled
 			end
 		end,
-		Tooltip = 'Automatically teleports to and handcuffs nearby entities'
+		Tooltip = 'Teleports to and handcuffs nearby entities (with vehicle spawn)'
 	})
 
-	-- Optional: add a toggle in the Vape GUI to enable/disable teleport
-	-- (you can create a dropdown or toggle inside the module)
-end)
-
+	-- Toggles for teleport and spawn
 	local TeleportToggle = AutoArrest:CreateToggle({
-	Name = 'Teleport to Target',
-	Default = true,
-	Function = function(val)
-		TeleportToTarget = val
-	end
-})
+		Name = 'Teleport to Target',
+		Default = true,
+		Function = function(val) TeleportToTarget = val end
+	})
+
+	local SpawnToggle = AutoArrest:CreateToggle({
+		Name = 'Spawn Vehicle',
+		Default = true,
+		Function = function(val) SpawnVehicle = val end
+	})
+end)
 
 run(function()
 	local AutoPop

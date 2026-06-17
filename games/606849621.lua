@@ -9,7 +9,7 @@ local isfile = isfile or function(file)
 end
 local function downloadFile(path, func)
 	if not isfile(path) then
-		local suc, res = pcall(function() return game:HttpGet('https://raw.githubusercontent.com/nothingsware/VapeV4ForRoblox/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true) end)
+		local suc, res = pcall(function() return game:HttpGet('https://raw.githubusercontent.com/7GrandDadPGN/VapeV4ForRoblox/'..readfile('newvape/profiles/commit.txt')..'/'..select(1, path:gsub('newvape/', '')), true) end)
 		if not suc or res == '404: Not Found' then error(res) end
 		if path:find('.lua') then res = '--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.\n'..res end
 		writefile(path, res)
@@ -546,7 +546,8 @@ end)
 	
 run(function()
 	local AutoArrest
-	
+	local TeleportToTarget = true  -- you can turn this into a toggle later
+
 	AutoArrest = vape.Categories.Blatant:CreateModule({
 		Name = 'AutoArrest',
 		Function = function(callback)
@@ -560,29 +561,71 @@ run(function()
 							Part = 'RootPart',
 							Range = 50
 						})
-	
+
 						for _, ent in plrs do
 							if not AutoArrest.Enabled then break end
 							if ent.Player and isIllegal(ent) then
 								local vehicle = ent.Humanoid.Sit and getVehicle(ent) or nil
+
+								-- If target is in a vehicle, eject them first
 								if vehicle then
 									jb:FireServer('Eject', vehicle)
-								elseif not isArrested(ent.Player.Name) and (localPosition - ent.RootPart.Position).Magnitude < 18.4 then
+									task.wait(0.3)
+								end
+
+								-- Teleport to the target if enabled and we're not already close enough
+								if TeleportToTarget then
+									local targetPos = ent.RootPart.Position
+									local distance = (localPosition - targetPos).Magnitude
+
+									if distance > 18.4 then
+										-- Use the FarmHub teleport functions (assumed to be available)
+										-- If you're in a vehicle, exit it first
+										if GetVehicleModel and GetVehicleModel() then
+											ExitVehicle()   -- from FarmHub
+										end
+
+										-- Use SmallTP or BigTP (prefer SmallTP for close distances)
+										if SmallTP then
+											SmallTP(CFrame.new(targetPos))
+										else
+											-- fallback: simple CFrame teleport
+											if Character and Root then
+												Root.CFrame = CFrame.new(targetPos + Vector3.new(0, 2, 0))
+											end
+										end
+										task.wait(0.5)  -- let the server catch up
+									end
+								end
+
+								-- Now attempt arrest (only if within range)
+								if not isArrested(ent.Player.Name) and (localPosition - ent.RootPart.Position).Magnitude < 18.4 then
 									jb:FireServer('Arrest', ent.Player.Name)
 									task.wait(0.6)
 								end
 							end
 						end
 					end
-	
+
 					task.wait(0.016)
 				until not AutoArrest.Enabled
 			end
 		end,
-		Tooltip = 'Automatically uses handcuffs on nearby entities'
+		Tooltip = 'Automatically teleports to and handcuffs nearby entities'
 	})
+
+	-- Optional: add a toggle in the Vape GUI to enable/disable teleport
+	-- (you can create a dropdown or toggle inside the module)
 end)
-	
+
+	local TeleportToggle = AutoArrest:CreateToggle({
+	Name = 'Teleport to Target',
+	Default = true,
+	Function = function(val)
+		TeleportToTarget = val
+	end
+})
+
 run(function()
 	local AutoPop
 	local Range
@@ -771,136 +814,140 @@ run(function()
 end)
 
 local VehicleFly
-
-local VehicleFly
 run(function()
-	local Options = {TPTiming = tick()}  -- kept for compatibility
-	local Keys
-	local VerticalValue
-	local CustomProperties
-	local w, s, a, d, up, down = 0, 0, 0, 0, 0, 0
+    local Options = {TPTiming = tick()}
+    local Keys
+    local VerticalValue
+    local CustomProperties
+    local w, s, a, d, up, down = 0, 0, 0, 0, 0, 0
 
-	VehicleFly = vape.Categories.Blatant:CreateModule({
-		Name = 'VehicleFly',
-		Function = function(callback)
-			frictionTable.Fly = callback and CustomProperties.Enabled or nil
-			updateVelocity()
+    VehicleFly = vape.Categories.Blatant:CreateModule({
+        Name = 'VehicleFly',
+        Function = function(callback)
+            -- Safety: only use CustomProperties if it exists
+            local cpEnabled = CustomProperties and CustomProperties.Enabled or false
+            if frictionTable then
+                frictionTable.Fly = callback and cpEnabled or nil
+            end
+            if updateVelocity then
+                updateVelocity()
+            end
 
-			if callback then
-				VehicleFly:Clean(runService.PreSimulation:Connect(function(dt)
-					if entitylib.isAlive then
-						local root = entitylib.character.RootPart
+            if callback then
+                VehicleFly:Clean(runService.PreSimulation:Connect(function(dt)
+                    if entitylib and entitylib.isAlive then
+                        local root = entitylib.character.RootPart
 
-						-- Horizontal movement (direct input)
-						local moveDirection = Vector3.new(a + d, 0, w + s)
-						if moveDirection.Magnitude > 0 then
-							moveDirection = moveDirection.Unit
-						end
-						local horizontalSpeed = Options.Value.Value
-						local targetVel = moveDirection * horizontalSpeed
-						root.Velocity = Vector3.new(targetVel.X, root.Velocity.Y, targetVel.Z)
+                        -- Horizontal movement
+                        local moveDirection = Vector3.new(a + d, 0, w + s)
+                        if moveDirection.Magnitude > 0 then
+                            moveDirection = moveDirection.Unit
+                        end
+                        local horizontalSpeed = Options.Value and Options.Value.Value or 50
+                        local targetVel = moveDirection * horizontalSpeed
+                        root.Velocity = Vector3.new(targetVel.X, root.Velocity.Y, targetVel.Z)
 
-						-- Vertical movement with a small upward bias
-						local verticalInput = up + down
-						local verticalSpeed = verticalInput * VerticalValue.Value
-						root.Velocity = Vector3.new(root.Velocity.X, 2.25 + verticalSpeed, root.Velocity.Z)
-					end
-				end))
+                        -- Vertical movement
+                        local verticalInput = up + down
+                        local verticalSpeed = verticalInput * (VerticalValue and VerticalValue.Value or 50)
+                        root.Velocity = Vector3.new(root.Velocity.X, 2.25 + verticalSpeed, root.Velocity.Z)
+                    end
+                end))
 
-				-- Key bindings
-				w, s, a, d = 0, 0, 0, 0
-				up, down = 0, 0
-				for _, event in {'InputBegan', 'InputEnded'} do
-					VehicleFly:Clean(inputService[event]:Connect(function(input)
-						if not inputService:GetFocusedTextBox() then
-							local divided = Keys.Value:split('/')
-							if input.KeyCode == Enum.KeyCode.W then
-								w = (event == 'InputBegan') and -1 or 0
-							elseif input.KeyCode == Enum.KeyCode.S then
-								s = (event == 'InputBegan') and 1 or 0
-							elseif input.KeyCode == Enum.KeyCode.A then
-								a = (event == 'InputBegan') and -1 or 0
-							elseif input.KeyCode == Enum.KeyCode.D then
-								d = (event == 'InputBegan') and 1 or 0
-							elseif input.KeyCode == Enum.KeyCode[divided[1]] then
-								up = (event == 'InputBegan') and 1 or 0
-							elseif input.KeyCode == Enum.KeyCode[divided[2]] then
-								down = (event == 'InputBegan') and -1 or 0
-							end
-						end
-					end))
-				end
+                -- Key bindings
+                w, s, a, d = 0, 0, 0, 0
+                up, down = 0, 0
+                for _, event in {'InputBegan', 'InputEnded'} do
+                    VehicleFly:Clean(inputService[event]:Connect(function(input)
+                        if not inputService:GetFocusedTextBox() then
+                            local divided = Keys and Keys.Value and Keys.Value:split('/') or {'Space', 'LeftControl'}
+                            if input.KeyCode == Enum.KeyCode.W then
+                                w = (event == 'InputBegan') and -1 or 0
+                            elseif input.KeyCode == Enum.KeyCode.S then
+                                s = (event == 'InputBegan') and 1 or 0
+                            elseif input.KeyCode == Enum.KeyCode.A then
+                                a = (event == 'InputBegan') and -1 or 0
+                            elseif input.KeyCode == Enum.KeyCode.D then
+                                d = (event == 'InputBegan') and 1 or 0
+                            elseif input.KeyCode == Enum.KeyCode[divided[1]] then
+                                up = (event == 'InputBegan') and 1 or 0
+                            elseif input.KeyCode == Enum.KeyCode[divided[2]] then
+                                down = (event == 'InputBegan') and -1 or 0
+                            end
+                        end
+                    end))
+                end
 
-				-- Touch support (optional)
-				if inputService.TouchEnabled then
-					pcall(function()
-						local jumpButton = lplr.PlayerGui.TouchGui.TouchControlFrame.JumpButton
-						VehicleFly:Clean(jumpButton:GetPropertyChangedSignal('ImageRectOffset'):Connect(function()
-							up = jumpButton.ImageRectOffset.X == 146 and 1 or 0
-						end))
-					end)
-				end
-			else
-				-- Cleanup (nothing needed for velocity fly)
-			end
-		end,
-		ExtraText = function()
-			return 'Velocity'
-		end,
-		Tooltip = 'Makes you go zoom with pure velocity control.'
-	})
+                -- Touch support (optional)
+                if inputService.TouchEnabled then
+                    pcall(function()
+                        local jumpButton = lplr.PlayerGui.TouchGui.TouchControlFrame.JumpButton
+                        VehicleFly:Clean(jumpButton:GetPropertyChangedSignal('ImageRectOffset'):Connect(function()
+                            up = jumpButton.ImageRectOffset.X == 146 and 1 or 0
+                        end))
+                    end)
+                end
+            else
+                -- Cleanup (nothing needed for velocity fly)
+            end
+        end,
+        ExtraText = function()
+            return 'Velocity'
+        end,
+        Tooltip = 'Makes you go zoom with pure velocity control.'
+    })
 
-	-- Speed slider
-	Options.Value = VehicleFly:CreateSlider({
-		Name = 'Speed',
-		Min = 1,
-		Max = 300,
-		Default = 50,
-		Suffix = function(val)
-			return val == 1 and 'stud' or 'studs'
-		end
-	})
+    -- Speed slider
+    Options.Value = VehicleFly:CreateSlider({
+        Name = 'Speed',
+        Min = 1,
+        Max = 300,
+        Default = 50,
+        Suffix = function(val)
+            return val == 1 and 'stud' or 'studs'
+        end
+    })
 
-	-- Vertical Speed
-	VerticalValue = VehicleFly:CreateSlider({
-		Name = 'Vertical Speed',
-		Min = 1,
-		Max = 300,
-		Default = 50,
-		Suffix = function(val)
-			return val == 1 and 'stud' or 'studs'
-		end
-	})
+    -- Vertical Speed
+    VerticalValue = VehicleFly:CreateSlider({
+        Name = 'Vertical Speed',
+        Min = 1,
+        Max = 300,
+        Default = 50,
+        Suffix = function(val)
+            return val == 1 and 'stud' or 'studs'
+        end
+    })
 
-	-- Keys dropdown – now includes left/right control, shift, alt, and more
-	Keys = VehicleFly:CreateDropdown({
-		Name = 'Keys',
-		List = {
-			'Space/LeftControl',
-			'Space/RightControl',
-			'LeftControl/RightControl',
-			'LeftShift/RightShift',
-			'LeftAlt/RightAlt',
-			'Space/LeftShift',
-			'Space/RightShift',
-			'E/Q',
-			'Space/Q',
-			'ButtonA/ButtonL2',
-			'LeftControl/LeftShift',
-			'RightControl/RightShift'
-		},
-		Tooltip = 'The key combination for going up & down (first key = up, second = down)'
-	})
+    -- Keys dropdown
+    Keys = VehicleFly:CreateDropdown({
+        Name = 'Keys',
+        List = {
+            'Space/LeftControl',
+            'Space/RightControl',
+            'LeftControl/RightControl',
+            'LeftShift/RightShift',
+            'LeftAlt/RightAlt',
+            'Space/LeftShift',
+            'Space/RightShift',
+            'E/Q',
+            'Space/Q',
+            'ButtonA/ButtonL2',
+            'LeftControl/LeftShift',
+            'RightControl/RightShift'
+        },
+        Tooltip = 'The key combination for going up & down (first key = up, second = down)'
+    })
 
-	-- Custom Properties toggle
-	CustomProperties = VehicleFly:CreateToggle({
-		Name = 'Custom Properties',
-		Function = function()
-			if VehicleFly.Enabled then
-				VehicleFly:Toggle()
-				VehicleFly:Toggle()
-			end
-		end,
-		Default = true
-	})
+    -- Custom Properties toggle
+    CustomProperties = VehicleFly:CreateToggle({
+        Name = 'Custom Properties',
+        Function = function()
+            if VehicleFly.Enabled then
+                VehicleFly:Toggle()
+                VehicleFly:Toggle()
+            end
+        end,
+        Default = true
+    })
 end)
